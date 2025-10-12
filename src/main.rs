@@ -1,6 +1,6 @@
 //l'obiettivo è quello di scrivere un codice che compia una ricerca in un file di testo
 
-//creiamo una prima versione ove la funzione rende true se trova la parola desiderata, false altrimeni
+//versione base
 
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
