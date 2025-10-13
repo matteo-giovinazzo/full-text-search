@@ -39,7 +39,7 @@ fn fuzzy_search(file_path: &str, parola: &str, tolleranza: usize) -> io::Result<
 
 fn main() -> io::Result<()> {
     let testo = "testo.txt";
-    let parola_cercata = "bran";
+    let parola_cercata = "branc";
     let tollera = 1; //1 cancellazione oppure 1 sostituzione fra la parola cercata e quella nel testo  
 
     println!(
