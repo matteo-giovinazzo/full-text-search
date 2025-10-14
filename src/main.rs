@@ -20,12 +20,12 @@
 //in modo case sensitive, ottenendo uno score più basso di 1 nel caso in cui si stia cercando pallone e si trova Pallone
 //utilizziamo la funzione normalized_damerau_levenshtain la quale calcola uno score normalizzato incluso in [0, 1]
 
-use levenshtein::levenshtein;
 use std::env;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
+use strsim::normalized_damerau_levenshtein;
 
-fn rimuovi_punteggiatura(testo: &str) -> String {
+fn remove_punctuation(testo: &str) -> String {
     testo
         .chars()
         .filter(|c| c.is_alphanumeric() || c.is_whitespace())
@@ -35,68 +35,54 @@ fn rimuovi_punteggiatura(testo: &str) -> String {
 fn fuzzy_search(
     file_path: &str,
     parola: &str,
-    tolleranza: usize,
-    nosense: bool,
+    treshold: f64,
+    nosense: String,
 ) -> io::Result<Vec<String>> {
     let file = File::open(file_path)?;
     let read = BufReader::new(file);
 
-    let mut parole_trovate = Vec::new(); //voglio tutte le occorrenze di una certa parola che cerco 
-    //sennò quando scrivo AI mi trova la A iniziale e basta perchè soddisfa una tolleranza di 1 e si ferma lì
+    let mut words_finder = Vec::new();
 
     for riga_letta in read.lines() {
         let riga = riga_letta?;
 
-        for parola_nella_riga in riga.split_whitespace() {
-            let no_punt = rimuovi_punteggiatura(parola_nella_riga);
-            //controlliamo le parole in ciascuna riga una per una splittando per gli spazi bianchi
-            //NOTA BENE
-            //è POSSIBILE CHE ALCUNE PAROLE SIANO FRA () OPPURE ABBIANO UN . ALLA FINE O UNA ,
-            //--> DOBBIAMO ELIMINARE LA PUNTEGGIATURA
-            //let p: &[_] = &[',', '.', '(', ')', '"'];
-            //let no_punteggiatura = parola_nella_riga.trim_matches(p);
-            //VA TOLTA ANCHE LA PUNTEGGIATURA ALL'INTERNO DELLE STRINGHE, AD ESEMPIO LE APOSTROFO E LE -
-            //come fare ?
-            //gemini consiglia di utilizzare una funzione esterna che toglie ogni cosa tutta insieme
-
-            let distanza: usize = if nosense {
-                levenshtein(&parola.to_lowercase(), &no_punt.to_lowercase())
+        for word_in_line in riga.split_whitespace() {
+            let no_punt = remove_punctuation(word_in_line);
+            let distanza_damlev: f64 = if nosense == "false" {
+                normalized_damerau_levenshtein(&parola.to_lowercase(), &no_punt.to_lowercase())
             } else {
-                levenshtein(parola, &no_punt)
+                normalized_damerau_levenshtein(parola, &no_punt)
             };
 
-            if distanza <= tolleranza {
-                parole_trovate.push(parola_nella_riga.to_string());
+            if distanza_damlev >= treshold {
+                words_finder.push(word_in_line.to_string());
             }
         }
     }
-    Ok(parole_trovate) //restituisco il vettore con le corrispondenze 
+    Ok(words_finder) //restituisco il vettore con le corrispondenze 
 }
-
-//adattiamo la main per gestire un risultato più ricco
 
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
     let testo = "testo.txt";
-    //let parola_cercata = "tsle";
-    let tollera = 0; //numero di cancellazione/sostituzione/inserzione fra la parola cercata e quella nel testo  
-    let no_sensitive = false;
-    let parola_cercata = &args[1];
+    let treshold: f64 = 0.6; //score distanza damlev
+    let word_to_find = &args[1];
+    let no_sensitive = &args[2];
 
     println!(
         "cerchiamo la parola {} nel testo {} con una tolleranza di {}",
-        parola_cercata, testo, tollera
+        word_to_find, testo, treshold
     );
 
-    match fuzzy_search(testo, parola_cercata, tollera, no_sensitive) {
-        Ok(parole_trovate) => {
-            if parole_trovate.is_empty() {
-                println!("nessuna corrispondenza per {}", parola_cercata);
+    match fuzzy_search(testo, word_to_find, treshold, no_sensitive.to_string()) {
+        Ok(words_finder) => {
+            if words_finder.is_empty() {
+                println!("nessuna corrispondenza per {}", word_to_find);
             } else {
                 println!(
                     "trovate {} corrispondenze per {}",
-                    parole_trovate.len(),
-                    parola_cercata
+                    words_finder.len(),
+                    word_to_find
                 );
             }
         }
