@@ -21,6 +21,7 @@
 //utilizziamo la funzione normalized_damerau_levenshtain la quale calcola uno score normalizzato incluso in [0, 1]
 
 use levenshtein::levenshtein;
+use std::env;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 
@@ -31,7 +32,12 @@ fn rimuovi_punteggiatura(testo: &str) -> String {
         .collect()
 }
 
-fn fuzzy_search(file_path: &str, parola: &str, tolleranza: usize) -> io::Result<Vec<String>> {
+fn fuzzy_search(
+    file_path: &str,
+    parola: &str,
+    tolleranza: usize,
+    nosense: bool,
+) -> io::Result<Vec<String>> {
     let file = File::open(file_path)?;
     let read = BufReader::new(file);
 
@@ -42,6 +48,7 @@ fn fuzzy_search(file_path: &str, parola: &str, tolleranza: usize) -> io::Result<
         let riga = riga_letta?;
 
         for parola_nella_riga in riga.split_whitespace() {
+            let no_punt = rimuovi_punteggiatura(parola_nella_riga);
             //controlliamo le parole in ciascuna riga una per una splittando per gli spazi bianchi
             //NOTA BENE
             //è POSSIBILE CHE ALCUNE PAROLE SIANO FRA () OPPURE ABBIANO UN . ALLA FINE O UNA ,
@@ -51,10 +58,13 @@ fn fuzzy_search(file_path: &str, parola: &str, tolleranza: usize) -> io::Result<
             //VA TOLTA ANCHE LA PUNTEGGIATURA ALL'INTERNO DELLE STRINGHE, AD ESEMPIO LE APOSTROFO E LE -
             //come fare ?
             //gemini consiglia di utilizzare una funzione esterna che toglie ogni cosa tutta insieme
-            let no_punt = rimuovi_punteggiatura(parola_nella_riga);
 
-            let distanza = levenshtein(parola, &no_punt); //definiamo la 
-            //distanza di lev fra ciascuna parola nella riga e la parola cercata
+            let distanza: usize = if nosense {
+                levenshtein(&parola.to_lowercase(), &no_punt.to_lowercase())
+            } else {
+                levenshtein(parola, &no_punt)
+            };
+
             if distanza <= tolleranza {
                 parole_trovate.push(parola_nella_riga.to_string());
             }
@@ -66,16 +76,19 @@ fn fuzzy_search(file_path: &str, parola: &str, tolleranza: usize) -> io::Result<
 //adattiamo la main per gestire un risultato più ricco
 
 fn main() -> io::Result<()> {
+    let args: Vec<String> = env::args().collect();
     let testo = "testo.txt";
-    let parola_cercata = "AI";
-    let tollera = 1; //1 cancellazione oppure 1 sostituzione fra la parola cercata e quella nel testo  
+    //let parola_cercata = "tsle";
+    let tollera = 0; //numero di cancellazione/sostituzione/inserzione fra la parola cercata e quella nel testo  
+    let no_sensitive = false;
+    let parola_cercata = &args[1];
 
     println!(
         "cerchiamo la parola {} nel testo {} con una tolleranza di {}",
         parola_cercata, testo, tollera
     );
 
-    match fuzzy_search(testo, parola_cercata, tollera) {
+    match fuzzy_search(testo, parola_cercata, tollera, no_sensitive) {
         Ok(parole_trovate) => {
             if parole_trovate.is_empty() {
                 println!("nessuna corrispondenza per {}", parola_cercata);
