@@ -12,34 +12,62 @@
 //quindi se la distanza fra la parola cercata e ciascuna occorrenza che le assomigli
 //renda una distanza di lev minore del limite prefissato, andrà bene
 
+//VERSIONE 3
+//utlizziamo la distanza di Damerau-Levenshtain
+//a differenza della precedente che implementava le operazioni di insertions, deletions and substitutions,
+//essa permette anche la trasposizione dei caratteri ed assegna uno score alle operazioni da compiere per arrivare alla parola cercata
+//inoltre questa versione dovrà scegliere se ricercare in modo case insensitive (come fatto finora) oppure
+//in modo case sensitive, ottenendo uno score più basso di 1 nel caso in cui si stia cercando pallone e si trova Pallone
+//utilizziamo la funzione normalized_damerau_levenshtain la quale calcola uno score normalizzato incluso in [0, 1]
+
 use levenshtein::levenshtein;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 
-fn fuzzy_search(file_path: &str, parola: &str, tolleranza: usize) -> io::Result<Option<String>> {
+fn rimuovi_punteggiatura(testo: &str) -> String {
+    testo
+        .chars()
+        .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+        .collect()
+}
+
+fn fuzzy_search(file_path: &str, parola: &str, tolleranza: usize) -> io::Result<Vec<String>> {
     let file = File::open(file_path)?;
     let read = BufReader::new(file);
+
+    let mut parole_trovate = Vec::new(); //voglio tutte le occorrenze di una certa parola che cerco 
+    //sennò quando scrivo AI mi trova la A iniziale e basta perchè soddisfa una tolleranza di 1 e si ferma lì
 
     for riga_letta in read.lines() {
         let riga = riga_letta?;
 
         for parola_nella_riga in riga.split_whitespace() {
             //controlliamo le parole in ciascuna riga una per una splittando per gli spazi bianchi
-            let distanza = levenshtein(parola, parola_nella_riga); //definiamo la 
+            //NOTA BENE
+            //è POSSIBILE CHE ALCUNE PAROLE SIANO FRA () OPPURE ABBIANO UN . ALLA FINE O UNA ,
+            //--> DOBBIAMO ELIMINARE LA PUNTEGGIATURA
+            //let p: &[_] = &[',', '.', '(', ')', '"'];
+            //let no_punteggiatura = parola_nella_riga.trim_matches(p);
+            //VA TOLTA ANCHE LA PUNTEGGIATURA ALL'INTERNO DELLE STRINGHE, AD ESEMPIO LE APOSTROFO E LE -
+            //come fare ?
+            //gemini consiglia di utilizzare una funzione esterna che toglie ogni cosa tutta insieme
+            let no_punt = rimuovi_punteggiatura(parola_nella_riga);
+
+            let distanza = levenshtein(parola, &no_punt); //definiamo la 
             //distanza di lev fra ciascuna parola nella riga e la parola cercata
             if distanza <= tolleranza {
-                return Ok(Some(parola_nella_riga.to_string()));
+                parole_trovate.push(parola_nella_riga.to_string());
             }
         }
     }
-    Ok(None) //se non trovo nessuna corripondenza entro la tolleranza stabilita
+    Ok(parole_trovate) //restituisco il vettore con le corrispondenze 
 }
 
 //adattiamo la main per gestire un risultato più ricco
 
 fn main() -> io::Result<()> {
     let testo = "testo.txt";
-    let parola_cercata = "branc";
+    let parola_cercata = "AI";
     let tollera = 1; //1 cancellazione oppure 1 sostituzione fra la parola cercata e quella nel testo  
 
     println!(
@@ -48,11 +76,16 @@ fn main() -> io::Result<()> {
     );
 
     match fuzzy_search(testo, parola_cercata, tollera) {
-        Ok(Some(parola_trovata)) => {
-            println!("trovata una corrispondenza simile : {} ", parola_trovata);
-        }
-        Ok(None) => {
-            println!("nessuna corrispondenza simile trovata ");
+        Ok(parole_trovate) => {
+            if parole_trovate.is_empty() {
+                println!("nessuna corrispondenza per {}", parola_cercata);
+            } else {
+                println!(
+                    "trovate {} corrispondenze per {}",
+                    parole_trovate.len(),
+                    parola_cercata
+                );
+            }
         }
         Err(e) => {
             eprintln!("errore nella lettura del file {}", e);
