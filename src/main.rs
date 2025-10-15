@@ -20,75 +20,76 @@
 //in modo case sensitive, ottenendo uno score più basso di 1 nel caso in cui si stia cercando pallone e si trova Pallone
 //utilizziamo la funzione normalized_damerau_levenshtain la quale calcola uno score normalizzato incluso in [0, 1]
 
-use std::env;
+//VERSIONE 4
+//va fatto un parser del testo
+//dobbiamo categorizzare i singoli caratteri
+
+#[derive(Debug)]
+enum TokenType {
+    Word(String), //sequenza di caratteri alfabetici quindin una parola
+    Number(f64),
+    Punctuation(char), //singolo carattere di punteggiatura
+}
+
+fn tokenize(testo: &str) -> Vec<TokenType> {
+    let mut tokens = Vec::new();
+    let mut chars = testo.chars().peekable();
+    //si usa peek e non next perchè si sbircia sul crattere successivo senza consumarlo
+    //così da capire se continuare a costruire una parola o un numero
+    while let Some(&c) = chars.peek() {
+        //inizia un while che continua finchè c'è un carattere dopo da sbirciare con peek
+        //&c --> c sarà una copia del carattere corrente che decideremo dove buttarlo
+        if c.is_alphabetic() {
+            //in questo caso sta iniziando una parola o sta continuando
+            let mut single_word = String::new();
+            while let Some(ch) = chars.peek() {
+                if ch.is_alphabetic() {
+                    single_word.push(chars.next().unwrap())
+                } else {
+                    break;
+                }
+            }
+            tokens.push(TokenType::Word(single_word.to_lowercase()));
+        } else if c.is_numeric() {
+            let mut number = String::new();
+            while let Some(ch) = chars.peek() {
+                if ch.is_numeric() {
+                    number.push(chars.next().unwrap());
+                } else {
+                    break;
+                }
+            }
+            if let Ok(num) = number.parse::<f64>() {
+                tokens.push(TokenType::Number(num));
+            }
+        } else if c.is_whitespace() {
+            chars.next();
+        } else {
+            tokens.push(TokenType::Punctuation(chars.next().unwrap()));
+        }
+    }
+    tokens
+}
+
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
-use strsim::normalized_damerau_levenshtein;
-
-fn remove_punctuation(testo: &str) -> String {
-    testo
-        .chars()
-        .filter(|c| c.is_alphanumeric() || c.is_whitespace())
-        .collect()
-}
-
-fn fuzzy_search(
-    file_path: &str,
-    parola: &str,
-    treshold: f64,
-    nosense: String,
-) -> io::Result<Vec<String>> {
-    let file = File::open(file_path)?;
-    let read = BufReader::new(file);
-
-    let mut words_finder = Vec::new();
-
-    for riga_letta in read.lines() {
-        let riga = riga_letta?;
-
-        for word_in_line in riga.split_whitespace() {
-            let no_punt = remove_punctuation(word_in_line);
-            let distanza_damlev: f64 = if nosense == "false" {
-                normalized_damerau_levenshtein(&parola.to_lowercase(), &no_punt.to_lowercase())
-            } else {
-                normalized_damerau_levenshtein(parola, &no_punt)
-            };
-
-            if distanza_damlev >= treshold {
-                words_finder.push(word_in_line.to_string());
-            }
-        }
-    }
-    Ok(words_finder) //restituisco il vettore con le corrispondenze 
-}
 
 fn main() -> io::Result<()> {
-    let args: Vec<String> = env::args().collect();
-    let testo = "testo.txt";
-    let treshold: f64 = 0.6; //score distanza damlev
-    let word_to_find = &args[1];
-    let no_sensitive = &args[2];
+    let file_path = "testo.txt";
+    let file = File::open(file_path)?;
+    let reader = BufReader::new(file);
 
-    println!(
-        "cerchiamo la parola {} nel testo {} con una tolleranza di {}",
-        word_to_find, testo, treshold
-    );
+    println!("Tokenizzazione del file '{}':\n", file_path);
 
-    match fuzzy_search(testo, word_to_find, treshold, no_sensitive.to_string()) {
-        Ok(words_finder) => {
-            if words_finder.is_empty() {
-                println!("nessuna corrispondenza per {}", word_to_find);
-            } else {
-                println!(
-                    "trovate {} corrispondenze per {}",
-                    words_finder.len(),
-                    word_to_find
-                );
-            }
+    for (row_number, line_result) in reader.lines().enumerate() {
+        let row = line_result?;
+        if row.is_empty() {
+            continue;
         }
-        Err(e) => {
-            eprintln!("errore nella lettura del file {}", e);
-        }
+
+        let tokens = tokenize(&row);
+        println!("row {}: {:?}", row_number + 1, tokens);
     }
+
     Ok(())
 }
