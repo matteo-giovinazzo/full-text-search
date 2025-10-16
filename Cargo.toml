@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 levenshtein = "1.0.5"
 strsim = "0.10.0"
+clap = { version = "4.5", features = ["derive"] }

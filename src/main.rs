@@ -24,23 +24,56 @@
 //va fatto un parser del testo
 //dobbiamo categorizzare i singoli caratteri
 
-#[derive(Debug)]
+use clap::Parser;
+use std::error::Error;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+
+#[derive(Debug, PartialEq, Clone)]
 enum TokenType {
-    Word(String), //sequenza di caratteri alfabetici quindin una parola
+    Word(String),
     Number(f64),
-    Punctuation(char), //singolo carattere di punteggiatura
+    Punctuation(char),
+    SpecialCharacter(char),
 }
 
-fn tokenize(testo: &str) -> Vec<TokenType> {
+///ricerca testo in file di testo txt
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    ///cerca la parola o frase o collezione di caratteri
+    query: String,
+
+    ///il file nella quale cercare si chiama
+    file_path: String,
+
+    ///decidi se ricerca case sensitive (true) o case insensitive (false)
+    #[arg(short, long)]
+    case_sensitive: bool,
+
+    /// Ignora la punteggiatura e i caratteri speciali nella ricerca (true) o mantieni tutto (false)
+    #[arg(short = 's', long)]
+    ignore_special: bool,
+}
+
+//funzione di suporto per scrivere il testo
+impl TokenType {
+    fn as_str(&self) -> String {
+        match self {
+            TokenType::Word(s) => s.clone(),
+            TokenType::Number(n) => n.to_string(),
+            TokenType::Punctuation(c) => c.to_string(),
+            TokenType::SpecialCharacter(c) => c.to_string(),
+        }
+    }
+}
+
+fn tokenize(testo: &str, case_sensitive: bool) -> Vec<TokenType> {
     let mut tokens = Vec::new();
     let mut chars = testo.chars().peekable();
-    //si usa peek e non next perchè si sbircia sul crattere successivo senza consumarlo
-    //così da capire se continuare a costruire una parola o un numero
+
     while let Some(&c) = chars.peek() {
-        //inizia un while che continua finchè c'è un carattere dopo da sbirciare con peek
-        //&c --> c sarà una copia del carattere corrente che decideremo dove buttarlo
         if c.is_alphabetic() {
-            //in questo caso sta iniziando una parola o sta continuando
             let mut single_word = String::new();
             while let Some(ch) = chars.peek() {
                 if ch.is_alphabetic() {
@@ -49,7 +82,12 @@ fn tokenize(testo: &str) -> Vec<TokenType> {
                     break;
                 }
             }
-            tokens.push(TokenType::Word(single_word.to_lowercase()));
+            let final_word = if case_sensitive {
+                single_word
+            } else {
+                single_word.to_lowercase()
+            };
+            tokens.push(TokenType::Word(final_word));
         } else if c.is_numeric() {
             let mut number = String::new();
             while let Some(ch) = chars.peek() {
@@ -64,31 +102,99 @@ fn tokenize(testo: &str) -> Vec<TokenType> {
             }
         } else if c.is_whitespace() {
             chars.next();
-        } else {
+        } else if c == ',' || c == '.' || c == '\'' {
             tokens.push(TokenType::Punctuation(chars.next().unwrap()));
+        } else {
+            tokens.push(TokenType::SpecialCharacter(chars.next().unwrap()));
         }
     }
     tokens
 }
 
-use std::fs::File;
-use std::io::{self, BufRead, BufReader};
+fn find_best_token_sequence(
+    all_tokens: &[TokenType],
+    query_tokens: &[TokenType],
+    threshold: f64,
+    ignore_special: bool,
+) -> Option<Vec<TokenType>> {
+    //un controllo "obbligatorio"
+    let (all_tokens_to_search, query_tokens_to_search) = if ignore_special {
+        let filtered_all = all_tokens
+            .iter()
+            .filter(|t| matches!(t, TokenType::Word(_)))
+            .cloned()
+            .collect::<Vec<_>>();
+        let filtered_query = query_tokens
+            .iter()
+            .filter(|t| matches!(t, TokenType::Word(_)))
+            .cloned()
+            .collect::<Vec<_>>();
+        (filtered_all, filtered_query)
+    } else {
+        (all_tokens.to_vec(), query_tokens.to_vec())
+    };
 
-fn main() -> io::Result<()> {
-    let file_path = "testo.txt";
+    if query_tokens_to_search.is_empty()
+        || all_tokens_to_search.len() < query_tokens_to_search.len()
+    {
+        return None;
+    }
+
+    let mut best_match: Option<&[TokenType]> = None;
+    let mut best_score = -1.0; //assegno punteggio impossibile
+
+    for window in all_tokens_to_search.windows(query_tokens_to_search.len()) {
+        let score: f64 = query_tokens_to_search
+            .iter()
+            .zip(window.iter())
+            .map(|(query_tok, text_tok)| {
+                strsim::normalized_damerau_levenshtein(&query_tok.as_str(), &text_tok.as_str())
+            })
+            .sum::<f64>()
+            / query_tokens.len() as f64;
+
+        if score > best_score {
+            best_score = score;
+            best_match = Some(window);
+        }
+    }
+
+    if best_score >= threshold {
+        best_match.map(|slice| slice.to_vec())
+    } else {
+        None
+    }
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let args = Args::parse();
+    // Unisce tutti gli argomenti in un'unica frase di ricerca
+    let query_phrase = args.query;
+    let threshold: f64 = 0.8;
+    let file_path = args.file_path;
+
+    // Tokenizza sia la query che il file
+    let query_tokens = tokenize(&query_phrase, args.case_sensitive);
+
     let file = File::open(file_path)?;
     let reader = BufReader::new(file);
+    let mut all_tokens = Vec::new();
+    for line in reader.lines() {
+        all_tokens.extend(tokenize(&line?, args.case_sensitive));
+    }
 
-    println!("Tokenizzazione del file '{}':\n", file_path);
+    println!(
+        "Cerco la sequenza {:?} con soglia >= {}...",
+        query_tokens, threshold
+    );
 
-    for (row_number, line_result) in reader.lines().enumerate() {
-        let row = line_result?;
-        if row.is_empty() {
-            continue;
+    match find_best_token_sequence(&all_tokens, &query_tokens, threshold, args.ignore_special) {
+        Some(found_sequence) => {
+            println!(r"\Trovata la migliore corrispondenza: {:?}", found_sequence);
         }
-
-        let tokens = tokenize(&row);
-        println!("row {}: {:?}", row_number + 1, tokens);
+        None => {
+            println!("Nessuna corrispondenza sufficientemente simile trovata.");
+        }
     }
 
     Ok(())
