@@ -119,7 +119,7 @@ enum TokenType {
     SpecialCharacter(char),
 }
 
-///ricerca testo in file di testo txt
+///fuzzy search with score
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -129,7 +129,7 @@ struct Args {
     ///in which text file do you want to search?
     file_path: String,
 
-    ///choose the min score
+    ///choose the min score of the entire string : how similar should the two strings be?
     threshold: f64,
 
     ///decide if you want case-sensitive search (true) or not case sensitive search (false, default)
@@ -207,6 +207,7 @@ fn find_best_token_sequence(
     all_tokens: &[TokenType],
     query_tokens: &[TokenType],
     threshold: f64,
+    score_min: f64,
     include_special: bool,
     original_query: &str,
 ) -> Vec<(Vec<TokenType>, f64)> {
@@ -263,7 +264,9 @@ fn find_best_token_sequence(
     for sequence in first_match {
         let match_string = transform_in_string(&sequence);
         let final_score = strsim::normalized_damerau_levenshtein(original_query, &match_string);
-        results_with_score.push((sequence, final_score));
+        if final_score >= score_min {
+            results_with_score.push((sequence, final_score));
+        }
     }
     results_with_score
 }
@@ -290,6 +293,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let results = find_best_token_sequence(
         &all_tokens,
         &query_tokens,
+        0.5,
         args.threshold,
         args.include_special,
         &query_phrase,
